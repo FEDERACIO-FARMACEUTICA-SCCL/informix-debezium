@@ -19,6 +19,10 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Infinite retention: prevents data loss from retention expiry (default 7d)
+      # NOTE: To enable compaction (cleanup.policy=compact) Debezium must produce keyed messages.
+      # Configure message.key.columns in application.properties once tables have PKs or key columns defined.
+      KAFKA_LOG_RETENTION_MS: -1
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
 
   # --- Debezium Server (Informix CDC) ---
