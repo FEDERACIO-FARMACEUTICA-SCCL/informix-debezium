@@ -1,0 +1,26 @@
+# Configuracion con credenciales
+config/application.properties
+
+# Environment files con secretos
+.env
+.env.local
+.env.*.local
+
+# Dumps SQL con datos reales (PII)
+SQL/fedefarm_informix_*.sql
+
+# Datos de runtime de Debezium
+data/
+*.dat
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.qodo/
+SQL/
+informix-test/
