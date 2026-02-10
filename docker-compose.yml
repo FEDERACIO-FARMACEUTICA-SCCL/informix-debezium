@@ -9,6 +9,12 @@ services:
       - "127.0.0.1:9092:9092"
     volumes:
       - kafka-data:/var/kafka-logs
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     environment:
       KAFKA_LOG_DIRS: /var/kafka-logs
       KAFKA_NODE_ID: 1
@@ -36,9 +42,15 @@ services:
     platform: linux/amd64
     env_file:
       - .env
+    healthcheck:
+      test: curl -f http://localhost:8080/q/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -49,7 +61,7 @@ services:
   # --- Kafka UI (Redpanda Console) ---
   kafka-ui:
     container_name: kafka-ui
-    image: redpandadata/console:latest
+    image: redpandadata/console:v3.5.1
     ports:
       - "127.0.0.1:9080:8080"
     environment:

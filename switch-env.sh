@@ -12,7 +12,7 @@ if [[ "$ENV" != "test" && "$ENV" != "production" ]]; then
   echo "Usage: ./switch-env.sh [test|production]"
   echo ""
   echo "  test        -> Informix local (host.docker.internal:9088, testdb)"
-  echo "  production  -> Informix produccion (192.168.96.117:9800, fedefarm)"
+  echo "  production  -> Informix produccion (ver .env.production)"
   exit 1
 fi
 
@@ -34,7 +34,7 @@ if [[ -f .env ]]; then
   CURRENT_DB=$(grep -E '^DB_NAME=' .env | cut -d= -f2)
   if [[ "$CURRENT_DB" == "testdb" ]]; then
     CURRENT_ENV="test"
-  elif [[ "$CURRENT_DB" == "fedefarm" ]]; then
+  elif [[ "$CURRENT_DB" != "testdb" && -n "$CURRENT_DB" ]]; then
     CURRENT_ENV="production"
   fi
 fi
@@ -47,8 +47,12 @@ fi
 # --- Helper: copy volume data using a temporary alpine container ---
 copy_volume() {
   local src="$1" dst="$2"
+  if [[ -z "$src" || -z "$dst" ]]; then
+    echo "ERROR: copy_volume requires two non-empty arguments."
+    exit 1
+  fi
   docker volume create "$dst" >/dev/null 2>&1 || true
-  docker run --rm -v "$src":/from -v "$dst":/to alpine sh -c "rm -rf /to/* && cp -a /from/. /to/"
+  docker run --rm -v "$src":/from:ro -v "$dst":/to alpine sh -c "rm -rf /to/* && cp -a /from/. /to/"
 }
 
 echo "==> Stopping current stack..."

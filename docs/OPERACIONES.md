@@ -11,7 +11,7 @@ El stack utiliza ficheros `.env` para definir la conexion a Informix. Existen pe
 | Fichero | Entorno | Servidor | Base de datos |
 |---------|---------|----------|---------------|
 | `.env.test` | Desarrollo | `host.docker.internal:9088` | `testdb` |
-| `.env.production` | Produccion | `192.168.96.117:9800` | `fedefarm` |
+| `.env.production` | Produccion | *(ver `.env.production`)* | *(ver `.env.production`)* |
 | `.env` | **Activo** (el que usa Docker) | Copia de uno de los anteriores | |
 
 ### 1.2 Cambio rapido con script

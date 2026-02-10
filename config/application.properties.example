@@ -41,3 +41,7 @@ debezium.format.value=json
 quarkus.http.port=8080
 quarkus.log.level=INFO
 quarkus.log.category."io.debezium".level=INFO
+
+# Suppress JDBC connection string logging (may contain password)
+quarkus.log.category."com.informix".level=WARN
+quarkus.log.category."com.ibm.informix".level=WARN

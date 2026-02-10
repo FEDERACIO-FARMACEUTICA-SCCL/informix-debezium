@@ -1,17 +1,19 @@
 # Cambios requeridos en el servidor de produccion Informix
 
-**Servidor**: `192.168.96.117`
-**Puerto**: `9800`
-**Base de datos**: `fedefarm`
-**Usuario Debezium**: `rss_genesis`
+**Servidor**: `<PROD_HOST>`
+**Puerto**: `<PROD_PORT>`
+**Base de datos**: `<PROD_DB>`
+**Usuario Debezium**: `<PROD_USER>`
+
+> Los valores reales se encuentran en `.env.production` (no versionado).
 
 ---
 
 ## Estado actual
 
 El snapshot inicial de Debezium ha completado correctamente, lo que confirma:
-- La base de datos `fedefarm` tiene logging habilitado
-- El usuario `rss_genesis` tiene permisos SELECT sobre las tablas
+- La base de datos `<PROD_DB>` tiene logging habilitado
+- El usuario `<PROD_USER>` tiene permisos SELECT sobre las tablas
 - La conectividad de red funciona
 
 Sin embargo, al intentar pasar a modo **streaming** (captura en tiempo real), Debezium falla con:
@@ -30,7 +32,7 @@ Esto significa que faltan los siguientes cambios en el servidor.
 
 La base de datos `syscdcv1` es el componente de infraestructura CDC de Informix. Sin ella, Debezium solo puede hacer snapshots pero no puede capturar cambios en tiempo real.
 
-**Ejecutar como usuario `informix` en el servidor `192.168.96.117`:**
+**Ejecutar como usuario `informix` en el servidor `<PROD_HOST>`:**
 
 ```bash
 # Configurar variables de entorno (ajustar segun la instalacion real)
@@ -58,13 +60,13 @@ SELECT name FROM sysmaster:sysdatabases WHERE name = 'syscdcv1';
 
 Sin Full Row Logging, la API CDC no captura los datos completos de las filas modificadas.
 
-**Ejecutar como usuario `informix` en el servidor `192.168.96.117`:**
+**Ejecutar como usuario `informix` en el servidor `<PROD_HOST>`:**
 
 ```bash
 echo 'DATABASE syscdcv1;
-EXECUTE FUNCTION informix.cdc_set_fullrowlogging("fedefarm:informix.ctercero", 1);
-EXECUTE FUNCTION informix.cdc_set_fullrowlogging("fedefarm:informix.cterdire", 1);
-EXECUTE FUNCTION informix.cdc_set_fullrowlogging("fedefarm:informix.gproveed", 1);
+EXECUTE FUNCTION informix.cdc_set_fullrowlogging("<PROD_DB>:informix.ctercero", 1);
+EXECUTE FUNCTION informix.cdc_set_fullrowlogging("<PROD_DB>:informix.cterdire", 1);
+EXECUTE FUNCTION informix.cdc_set_fullrowlogging("<PROD_DB>:informix.gproveed", 1);
 CLOSE DATABASE;' | dbaccess -
 ```
 
@@ -73,9 +75,9 @@ CLOSE DATABASE;' | dbaccess -
 **Verificacion:**
 
 ```bash
-oncheck -pT fedefarm:informix.ctercero 2>&1 | grep -i "Log Snooping"
-oncheck -pT fedefarm:informix.cterdire 2>&1 | grep -i "Log Snooping"
-oncheck -pT fedefarm:informix.gproveed 2>&1 | grep -i "Log Snooping"
+oncheck -pT <PROD_DB>:informix.ctercero 2>&1 | grep -i "Log Snooping"
+oncheck -pT <PROD_DB>:informix.cterdire 2>&1 | grep -i "Log Snooping"
+oncheck -pT <PROD_DB>:informix.gproveed 2>&1 | grep -i "Log Snooping"
 # Esperado: "TBLspace flagged for Log Snooping" por cada tabla
 ```
 
@@ -83,7 +85,7 @@ oncheck -pT fedefarm:informix.gproveed 2>&1 | grep -i "Log Snooping"
 
 ---
 
-### 3. Otorgar permiso CONNECT sobre syscdcv1 al usuario `rss_genesis` (CRITICO)
+### 3. Otorgar permiso CONNECT sobre syscdcv1 al usuario `<PROD_USER>` (CRITICO)
 
 El usuario que usa Debezium para conectarse necesita acceso a `syscdcv1` para abrir sesiones CDC.
 
@@ -91,7 +93,7 @@ El usuario que usa Debezium para conectarse necesita acceso a `syscdcv1` para ab
 
 ```sql
 DATABASE syscdcv1;
-GRANT CONNECT TO rss_genesis;
+GRANT CONNECT TO <PROD_USER>;
 CLOSE DATABASE;
 ```
 
@@ -102,13 +104,13 @@ echo "DATABASE syscdcv1; SELECT 1 FROM systables WHERE tabid = 1; CLOSE DATABASE
 # Si ejecuta sin error de permisos, el GRANT es correcto
 ```
 
-> **Alternativa**: Si se prefiere, Debezium puede conectarse directamente como usuario `informix` en lugar de `rss_genesis`. En ese caso, modificar `DB_USER=informix` y `DB_PASSWORD=<password_informix>` en el fichero `.env.production`.
+> **Alternativa**: Si se prefiere, Debezium puede conectarse directamente como usuario `informix` en lugar de `<PROD_USER>`. En ese caso, modificar `DB_USER` y `DB_PASSWORD` en el fichero `.env.production`.
 
 ---
 
 ## Checklist de verificacion
 
-Ejecutar todo en el servidor `192.168.96.117` como usuario `informix`:
+Ejecutar todo en el servidor `<PROD_HOST>` como usuario `informix`:
 
 ```
 [ ] 1. syscdcv1 instalada:
@@ -116,18 +118,18 @@ Ejecutar todo en el servidor `192.168.96.117` como usuario `informix`:
       -> Devuelve 1 registro
 
 [ ] 2. Full Row Logging habilitado en ctercero:
-      oncheck -pT fedefarm:informix.ctercero 2>&1 | grep "Log Snooping"
+      oncheck -pT <PROD_DB>:informix.ctercero 2>&1 | grep "Log Snooping"
       -> "TBLspace flagged for Log Snooping"
 
 [ ] 3. Full Row Logging habilitado en cterdire:
-      oncheck -pT fedefarm:informix.cterdire 2>&1 | grep "Log Snooping"
+      oncheck -pT <PROD_DB>:informix.cterdire 2>&1 | grep "Log Snooping"
       -> "TBLspace flagged for Log Snooping"
 
 [ ] 4. Full Row Logging habilitado en gproveed:
-      oncheck -pT fedefarm:informix.gproveed 2>&1 | grep "Log Snooping"
+      oncheck -pT <PROD_DB>:informix.gproveed 2>&1 | grep "Log Snooping"
       -> "TBLspace flagged for Log Snooping"
 
-[ ] 5. rss_genesis tiene CONNECT sobre syscdcv1:
+[ ] 5. <PROD_USER> tiene CONNECT sobre syscdcv1:
       echo "DATABASE syscdcv1; SELECT 1 FROM systables WHERE tabid=1;" | dbaccess -
       -> Sin error de permisos
 ```
@@ -173,6 +175,6 @@ Cuando aparezca "Starting streaming", Debezium esta capturando cambios en tiempo
 |--------|--------|----------------------|
 | Instalar `syscdcv1` | Bajo | Crea una BD de sistema nueva, no afecta a BDs existentes |
 | Full Row Logging | Bajo | Incremento minimo en uso de logs logicos |
-| GRANT CONNECT | Nulo | Solo afecta al usuario `rss_genesis` |
+| GRANT CONNECT | Nulo | Solo afecta al usuario `<PROD_USER>` |
 
 Ninguno de estos cambios requiere reiniciar el servidor Informix ni afecta a las aplicaciones existentes.
