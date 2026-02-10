@@ -3,6 +3,8 @@ config/application.properties
 
 # Environment files con secretos
 .env
+.env.test
+.env.production
 .env.local
 .env.*.local
 

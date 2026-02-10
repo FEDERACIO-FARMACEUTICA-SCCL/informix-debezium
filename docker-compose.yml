@@ -4,9 +4,13 @@ services:
     container_name: kafka
     image: apache/kafka:3.9.0
     hostname: kafka
+    user: "0:0"
     ports:
       - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/var/kafka-logs
     environment:
+      KAFKA_LOG_DIRS: /var/kafka-logs
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:9092
@@ -54,4 +58,5 @@ services:
       - kafka
 
 volumes:
+  kafka-data:
   debezium-data:
