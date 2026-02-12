@@ -26,25 +26,30 @@ debezium.source.table.include.list=\
   ${DB_NAME}.informix.gproveed
 
 # --- Columnas incluidas por tabla ---
-# Solo estas columnas se incluyen en los eventos CDC.
-# Formato: schemaName.tableName.columnName (sin databaseName)
-# Las columnas PK siempre se incluyen en el message key aunque no esten aqui.
-debezium.source.column.include.list=\
-  informix.ctercero.codigo,\
-  informix.ctercero.nombre,\
-  informix.ctercero.cif,\
-  informix.ctercero.codare,\
-  informix.gproveed.codigo,\
-  informix.gproveed.fecalt,\
-  informix.gproveed.fecbaj,\
-  informix.cterdire.codigo,\
-  informix.cterdire.tipdir,\
-  informix.cterdire.direcc,\
-  informix.cterdire.poblac,\
-  informix.cterdire.codnac,\
-  informix.cterdire.codpos,\
-  informix.cterdire.telef1,\
-  informix.cterdire.email
+# NOTA: column.include.list esta DESHABILITADO porque el conector Informix
+# (incubating) tiene un bug: durante streaming (CDC), el CDC engine de Informix
+# solo envia las columnas filtradas, pero el schema interno de Debezium usa las
+# posiciones originales de la tabla completa, causando:
+#   "Data row is smaller than a column index"
+# El filtrado de columnas se hace en el consumer downstream.
+#
+# Formato (si se habilita en futuras versiones): schemaName.tableName.columnName
+# debezium.source.column.include.list=\
+#   informix.ctercero.codigo,\
+#   informix.ctercero.nombre,\
+#   informix.ctercero.cif,\
+#   informix.ctercero.codare,\
+#   informix.gproveed.codigo,\
+#   informix.gproveed.fecalt,\
+#   informix.gproveed.fecbaj,\
+#   informix.cterdire.codigo,\
+#   informix.cterdire.tipdir,\
+#   informix.cterdire.direcc,\
+#   informix.cterdire.poblac,\
+#   informix.cterdire.codnac,\
+#   informix.cterdire.codpos,\
+#   informix.cterdire.telef1,\
+#   informix.cterdire.email
 
 # --- Snapshot mode ---
 # Options: initial, initial_only, no_data, never, recovery, when_needed

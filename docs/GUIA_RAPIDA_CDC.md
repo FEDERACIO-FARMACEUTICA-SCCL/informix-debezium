@@ -111,26 +111,17 @@ CLOSE DATABASE;
 
 ---
 
-## Configuracion de columnas en Debezium
+## Limitacion conocida: filtrado de columnas
 
-`column.include.list` en `application.properties` controla que columnas se incluyen en los eventos CDC. Solo las columnas listadas se envian a Kafka.
+`column.include.list` **NO funciona** con el conector Informix (incubating) en modo streaming (CDC).
 
-**Formato**: `schemaName.tableName.columnName` (sin databaseName)
+**Causa**: bug en el conector — durante streaming, el CDC engine de Informix solo envia las columnas filtradas, pero el schema interno de Debezium usa las posiciones originales de la tabla completa, causando `Data row is smaller than a column index`.
 
-```properties
-debezium.source.column.include.list=\
-  informix.ctercero.codigo,\
-  informix.ctercero.nombre,\
-  informix.gproveed.codigo,\
-  informix.cterdire.codigo,\
-  informix.cterdire.direcc
-```
+**El snapshot funciona bien** (usa SELECT por JDBC), pero el primer evento CDC real crashea Debezium.
 
-Notas:
-- El `\` al final de linea permite partir la lista en multiples lineas
-- Las columnas PK siempre se incluyen en el message key de Kafka aunque no esten en esta lista
-- Si se omite `column.include.list`, se envian todas las columnas (mas trafico, mas disco)
-- **NO usar** `databaseName.schemaName.tableName.columnName` — Debezium Informix no matchea ese formato
+**Solucion**: no usar `column.include.list`. Debezium envia todas las columnas y el filtrado se hace en el consumer downstream.
+
+Si en futuras versiones del conector se corrige, el formato seria: `schemaName.tableName.columnName` (sin databaseName).
 
 ---
 
