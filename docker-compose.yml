@@ -29,10 +29,10 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      # Infinite retention: prevents data loss from retention expiry (default 7d)
-      # NOTE: To enable compaction (cleanup.policy=compact) Debezium must produce keyed messages.
-      # Configure message.key.columns in application.properties once tables have PKs or key columns defined.
-      KAFKA_LOG_RETENTION_MS: -1
+      # Compaction: Kafka keeps only the latest message per key (PK).
+      # Prevents indefinite topic growth and keeps consumer startup fast.
+      # Requires tables with PK so Debezium produces keyed messages.
+      KAFKA_LOG_CLEANUP_POLICY: compact
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
 
   # --- Debezium Server (Informix CDC) ---
