@@ -20,7 +20,32 @@ debezium.source.database.user=${DB_USER}
 debezium.source.database.password=${DB_PASSWORD}
 debezium.source.database.dbname=${DB_NAME}
 debezium.source.topic.prefix=informix
-debezium.source.table.include.list=testdb.informix.ctercero,testdb.informix.cterdire,testdb.informix.gproveed
+debezium.source.table.include.list=\
+  ${DB_NAME}.informix.ctercero,\
+  ${DB_NAME}.informix.cterdire,\
+  ${DB_NAME}.informix.gproveed
+
+# --- Columnas incluidas por tabla ---
+# Solo estas columnas se incluyen en los eventos CDC.
+# Formato: schemaName.tableName.columnName (sin databaseName)
+# Las columnas PK siempre se incluyen en el message key aunque no esten aqui.
+debezium.source.column.include.list=\
+  informix.ctercero.codigo,\
+  informix.ctercero.nombre,\
+  informix.ctercero.cif,\
+  informix.ctercero.codare,\
+  informix.gproveed.codigo,\
+  informix.gproveed.fecalt,\
+  informix.gproveed.fecbaj,\
+  informix.cterdire.codigo,\
+  informix.cterdire.tipdir,\
+  informix.cterdire.direcc,\
+  informix.cterdire.poblac,\
+  informix.cterdire.codnac,\
+  informix.cterdire.codpos,\
+  informix.cterdire.telef1,\
+  informix.cterdire.email
+
 # --- Snapshot mode ---
 # Options: initial, initial_only, no_data, never, recovery, when_needed
 debezium.source.snapshot.mode=initial

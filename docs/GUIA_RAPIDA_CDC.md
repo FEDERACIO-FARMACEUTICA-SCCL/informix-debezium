@@ -104,7 +104,33 @@ EXECUTE FUNCTION informix.cdc_set_fullrowlogging("<DB_NAME>:informix.nueva_tabla
 CLOSE DATABASE;
 ```
 
-2. **En Debezium** — anadir a `table.include.list` en `application.properties` y reiniciar.
+2. **En Debezium** (`application.properties`):
+   - Anadir la tabla a `table.include.list`
+   - Anadir las columnas deseadas a `column.include.list`
+   - Reiniciar Debezium
+
+---
+
+## Configuracion de columnas en Debezium
+
+`column.include.list` en `application.properties` controla que columnas se incluyen en los eventos CDC. Solo las columnas listadas se envian a Kafka.
+
+**Formato**: `schemaName.tableName.columnName` (sin databaseName)
+
+```properties
+debezium.source.column.include.list=\
+  informix.ctercero.codigo,\
+  informix.ctercero.nombre,\
+  informix.gproveed.codigo,\
+  informix.cterdire.codigo,\
+  informix.cterdire.direcc
+```
+
+Notas:
+- El `\` al final de linea permite partir la lista en multiples lineas
+- Las columnas PK siempre se incluyen en el message key de Kafka aunque no esten en esta lista
+- Si se omite `column.include.list`, se envian todas las columnas (mas trafico, mas disco)
+- **NO usar** `databaseName.schemaName.tableName.columnName` — Debezium Informix no matchea ese formato
 
 ---
 
