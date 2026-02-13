@@ -23,7 +23,8 @@ debezium.source.topic.prefix=informix
 debezium.source.table.include.list=\
   ${DB_NAME}.informix.ctercero,\
   ${DB_NAME}.informix.cterdire,\
-  ${DB_NAME}.informix.gproveed
+  ${DB_NAME}.informix.gproveed,\
+  ${DB_NAME}.informix.cterasoc
 
 # --- Columnas incluidas por tabla ---
 # NOTA: column.include.list esta DESHABILITADO porque el conector Informix
@@ -64,8 +65,13 @@ debezium.source.schema.history.internal=io.debezium.storage.file.history.FileSch
 debezium.source.schema.history.internal.file.filename=/debezium/data/schema-history.dat
 
 # --- Format ---
+# schemas.enable=false elimina el bloque "schema" repetido de cada mensaje.
+# Reduce ~85% del tamano en Kafka (el schema se repetia identico en cada evento).
+# El consumer ya lo soporta: "const payload = raw.payload ?? raw"
 debezium.format.key=json
+debezium.format.key.schemas.enable=false
 debezium.format.value=json
+debezium.format.value.schemas.enable=false
 
 # --- Quarkus / Server ---
 quarkus.http.port=8080
