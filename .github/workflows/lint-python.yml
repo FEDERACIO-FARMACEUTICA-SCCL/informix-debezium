@@ -1,0 +1,74 @@
+# Lints Python code using flake8 and black
+name: Python Linting
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        default: '3.11'
+        required: false
+        type: string
+      working-directory:
+        description: 'Directory containing Python files'
+        required: false
+        type: string
+        default: '.'
+      flake8-args:
+        description: 'Additional arguments for flake8'
+        required: false
+        type: string
+        default: ''
+      black-args:
+        description: 'Additional arguments for black'
+        required: false
+        type: string
+        default: ''
+      run-flake8:
+        description: 'Run flake8 linter'
+        required: false
+        type: boolean
+        default: true
+      run-black:
+        description: 'Run black formatter check'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install linters
+        run: |
+          python -m pip install --upgrade pip
+          PACKAGES=""
+          if [[ "${{ inputs.run-flake8 }}" == "true" ]]; then
+            PACKAGES="$PACKAGES flake8"
+          fi
+          if [[ "${{ inputs.run-black }}" == "true" ]]; then
+            PACKAGES="$PACKAGES black"
+          fi
+          if [[ -n "$PACKAGES" ]]; then
+            pip install $PACKAGES
+          fi
+
+      - name: Run flake8
+        if: inputs.run-flake8
+        run: flake8 . ${{ inputs.flake8-args }}
+
+      - name: Run black
+        if: inputs.run-black
+        run: black --check . ${{ inputs.black-args }}

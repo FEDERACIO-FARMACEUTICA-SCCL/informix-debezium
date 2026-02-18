@@ -1,0 +1,88 @@
+# Rejects commits on feature branches that don't include Jira key
+# Excluded branches (like develop and main) are not enforced
+name: Enforce Jira Commit Messages for Feature Branches
+
+on:
+  workflow_call:
+    inputs:
+      excluded-branches:
+        description: 'Comma-separated list of branches to exclude from enforcement'
+        default: 'develop,main,master'
+        required: false
+        type: string
+      jira-regex:
+        description: 'Regex pattern to match Jira keys in commit messages'
+        default: '[A-Z]{2,}-[0-9]+'
+        required: false
+        type: string
+
+jobs:
+  validate-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commits
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+          EXCLUDED: ${{ inputs.excluded-branches }}
+          JIRA_REGEX: ${{ inputs.jira-regex }}
+        run: |
+          echo "Current branch: $BRANCH"
+          echo "Base ref: $BASE_REF"
+
+          # Check if branch is excluded
+          IFS=',' read -ra EXCLUDED_LIST <<< "$EXCLUDED"
+          for excluded in "${EXCLUDED_LIST[@]}"; do
+            excluded=$(echo "$excluded" | xargs)
+            if [[ "$BRANCH" == "$excluded" ]]; then
+              echo "Branch '$BRANCH' is excluded from Jira commit enforcement"
+              exit 0
+            fi
+          done
+
+          # Get commits to validate
+          if [[ -n "$BASE_REF" ]]; then
+            # PR context: compare against base branch
+            COMMITS=$(git log "origin/$BASE_REF..HEAD" --pretty=format:"%H" 2>/dev/null || true)
+          else
+            # Push context: get commits in the push
+            COMMITS=$(git log --pretty=format:"%H" -n 20)
+          fi
+
+          if [[ -z "$COMMITS" ]]; then
+            echo "No commits to validate"
+            exit 0
+          fi
+
+          FAILED=0
+          while IFS= read -r sha; do
+            [[ -z "$sha" ]] && continue
+            message=$(git log -1 --pretty=%B "$sha")
+            short_sha=$(echo "$sha" | cut -c1-7)
+
+            # Skip merge commits (have 2+ parents)
+            parents=$(git log -1 --pretty=%P "$sha")
+            parent_count=$(echo "$parents" | wc -w)
+            if [[ "$parent_count" -ge 2 ]]; then
+              echo "Commit $short_sha: Merge commit - skipped"
+              continue
+            fi
+
+            if ! [[ "$message" =~ $JIRA_REGEX ]]; then
+              echo "::error::Commit $short_sha does not include Jira key: $(echo "$message" | head -n1)"
+              FAILED=1
+            else
+              echo "Commit $short_sha OK"
+            fi
+          done <<< "$COMMITS"
+
+          if [[ "$FAILED" -eq 1 ]]; then
+            exit 1
+          fi
+
+          echo "All commits contain Jira key"

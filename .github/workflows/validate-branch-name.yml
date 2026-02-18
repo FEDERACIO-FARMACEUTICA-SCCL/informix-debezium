@@ -1,0 +1,73 @@
+# Validates that branch names follow naming conventions (must include Jira key)
+name: Validate Branch Name
+
+on:
+  workflow_call:
+    inputs:
+      branch-name:
+        description: 'The branch name to validate'
+        required: true
+        type: string
+      jira-regex:
+        description: 'Regex pattern to match Jira keys'
+        required: false
+        type: string
+        default: '[A-Z]{2,}-[0-9]+'
+      excluded-branches:
+        description: 'Comma-separated list of branches to exclude from validation'
+        required: false
+        type: string
+        default: 'main,master,develop,staging,production'
+      max-length:
+        description: 'Maximum branch name length (0 to disable)'
+        required: false
+        type: number
+        default: 100
+
+jobs:
+  validate-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch name
+        env:
+          BRANCH: ${{ inputs.branch-name }}
+          JIRA_REGEX: ${{ inputs.jira-regex }}
+          EXCLUDED: ${{ inputs.excluded-branches }}
+          MAX_LENGTH: ${{ inputs.max-length }}
+        run: |
+          echo "Validating branch: $BRANCH"
+
+          # Check if branch is excluded
+          IFS=',' read -ra EXCLUDED_LIST <<< "$EXCLUDED"
+          for excluded in "${EXCLUDED_LIST[@]}"; do
+            excluded=$(echo "$excluded" | xargs)
+            if [[ "$BRANCH" == "$excluded" ]]; then
+              echo "Branch '$BRANCH' is in excluded list, skipping validation"
+              exit 0
+            fi
+          done
+
+          # Check length
+          if [[ "$MAX_LENGTH" -gt 0 && ${#BRANCH} -gt $MAX_LENGTH ]]; then
+            echo "::error::Branch name exceeds maximum length of $MAX_LENGTH characters (current: ${#BRANCH})"
+            exit 1
+          fi
+
+          # Check for Jira key
+          if ! [[ "$BRANCH" =~ $JIRA_REGEX ]]; then
+            echo "::error::Branch name '$BRANCH' must include a Jira key (e.g., PROJ-123)"
+            exit 1
+          fi
+
+          # Check for invalid characters
+          if [[ "$BRANCH" =~ [[:space:]] ]]; then
+            echo "::error::Branch name contains whitespace characters"
+            exit 1
+          fi
+
+          if [[ "$BRANCH" =~ [\~\^:\\\*\?\[] ]]; then
+            echo "::error::Branch name contains invalid git characters (~, ^, :, \\, *, ?, [)"
+            exit 1
+          fi
+
+          echo "Branch name '$BRANCH' is valid"
