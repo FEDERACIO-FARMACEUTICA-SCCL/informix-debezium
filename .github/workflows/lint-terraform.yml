@@ -1,0 +1,79 @@
+# Formats and validates Terraform code
+name: Terraform Linting
+
+on:
+  workflow_call:
+    inputs:
+      terraform-version:
+        description: 'Terraform version to use'
+        required: false
+        type: string
+        default: 'latest'
+      working-directory:
+        description: 'Directory containing Terraform files'
+        required: false
+        type: string
+        default: '.'
+      recursive:
+        description: 'Check subdirectories recursively'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  lint-terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+
+      - name: Check Terraform formatting
+        run: |
+          if [[ "${{ inputs.recursive }}" == "true" ]]; then
+            terraform fmt -check -recursive -diff
+          else
+            terraform fmt -check -diff
+          fi
+
+      - name: Find Terraform directories and validate
+        run: |
+          FAILED=0
+
+          if [[ "${{ inputs.recursive }}" == "true" ]]; then
+            # Find all directories with .tf files
+            DIRS=$(find . -name "*.tf" -exec dirname {} \; | sort -u)
+          else
+            DIRS="."
+          fi
+
+          for dir in $DIRS; do
+            echo "Validating Terraform in: $dir"
+            cd "$dir"
+
+            # Initialize backend (skip backend config for validation)
+            if ! terraform init -backend=false -input=false > /dev/null 2>&1; then
+              echo "::warning::terraform init failed in $dir (may be expected for modules)"
+            fi
+
+            # Validate
+            if ! terraform validate; then
+              echo "::error::Terraform validation failed in $dir"
+              FAILED=1
+            fi
+
+            cd - > /dev/null
+          done
+
+          if [[ "$FAILED" -eq 1 ]]; then
+            exit 1
+          fi
+
+          echo "All Terraform files are valid"
