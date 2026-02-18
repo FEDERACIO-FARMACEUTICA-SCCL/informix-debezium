@@ -1,0 +1,94 @@
+# Blocks the workflow if Jira status is not in the allowed list
+name: Block PR Merge Unless Jira Status OK
+
+on:
+  workflow_call:
+    inputs:
+      allowed-statuses:
+        description: 'Comma-separated list of allowed Jira statuses'
+        required: false
+        type: string
+        default: 'PR Accepted,Code Review,PRE OK,PR IN REVIEW'
+      jira-regex:
+        description: 'Regex pattern to extract Jira key'
+        required: false
+        type: string
+        default: '[A-Z]{2,}-[0-9]+'
+    secrets:
+      JIRA_USER:
+        required: true
+      JIRA_API_TOKEN:
+        required: true
+      JIRA_BASE_URL:
+        required: true
+
+jobs:
+  check-jira-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira Key from Branch or PR Title
+        id: extract-jira
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          JIRA_REGEX: ${{ inputs.jira-regex }}
+        run: |
+          # Try branch name first
+          if [[ "$BRANCH_NAME" =~ ($JIRA_REGEX) ]]; then
+            echo "JIRA_KEY=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "Found Jira key in branch name: ${BASH_REMATCH[1]}"
+          elif [[ "$PR_TITLE" =~ ($JIRA_REGEX) ]]; then
+            echo "JIRA_KEY=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "Found Jira key in PR title: ${BASH_REMATCH[1]}"
+          else
+            echo "::error::No Jira key found in branch name or PR title"
+            exit 1
+          fi
+
+      - name: Query Jira API
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_KEY: ${{ steps.extract-jira.outputs.JIRA_KEY }}
+          ALLOWED_STATUSES: ${{ inputs.allowed-statuses }}
+        run: |
+          # Query Jira API
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -u "$JIRA_USER:$JIRA_API_TOKEN" \
+            -X GET \
+            -H "Accept: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_KEY")
+
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+          # Check for HTTP errors
+          if [[ "$HTTP_CODE" -ne 200 ]]; then
+            echo "::error::Failed to query Jira API (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+          fi
+
+          # Extract status
+          STATUS=$(echo "$RESPONSE_BODY" | jq -r '.fields.status.name')
+
+          if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
+            echo "::error::Could not extract status from Jira response"
+            exit 1
+          fi
+
+          echo "Jira issue $JIRA_KEY status: $STATUS"
+
+          # Check if status is allowed
+          IFS=',' read -ra STATUSES <<< "$ALLOWED_STATUSES"
+          for allowed in "${STATUSES[@]}"; do
+            # Trim whitespace
+            allowed=$(echo "$allowed" | xargs)
+            if [[ "$STATUS" == "$allowed" ]]; then
+              echo "Status '$STATUS' is allowed"
+              exit 0
+            fi
+          done
+
+          echo "::error::Jira issue $JIRA_KEY status '$STATUS' is not in allowed list: $ALLOWED_STATUSES"
+          exit 1
