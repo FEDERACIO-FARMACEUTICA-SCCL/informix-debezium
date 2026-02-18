@@ -1,0 +1,113 @@
+# Transitions Jira issue to a specified status when a PR is merged
+name: Transition Jira Issue on Merge
+
+on:
+  workflow_call:
+    inputs:
+      target-transition:
+        description: 'The Jira transition name to apply'
+        required: false
+        type: string
+        default: 'Pending QA'
+      jira-regex:
+        description: 'Regex pattern to extract Jira key'
+        required: false
+        type: string
+        default: '[A-Z]{2,}-[0-9]+'
+    secrets:
+      JIRA_USER:
+        required: true
+      JIRA_API_TOKEN:
+        required: true
+      JIRA_BASE_URL:
+        required: true
+
+jobs:
+  transition-jira:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira issue key
+        id: extract
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          JIRA_REGEX: ${{ inputs.jira-regex }}
+        run: |
+          # Try branch name first, then PR title
+          if [[ "$BRANCH_NAME" =~ ($JIRA_REGEX) ]]; then
+            echo "ISSUE_KEY=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "Found Jira key in branch name: ${BASH_REMATCH[1]}"
+          elif [[ "$PR_TITLE" =~ ($JIRA_REGEX) ]]; then
+            echo "ISSUE_KEY=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "Found Jira key in PR title: ${BASH_REMATCH[1]}"
+          else
+            echo "::error::No Jira key found in branch name or PR title"
+            exit 1
+          fi
+
+      - name: Get available Jira transitions
+        id: transitions
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
+          TARGET_TRANSITION: ${{ inputs.target-transition }}
+        run: |
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -u "$JIRA_USER:$JIRA_API_TOKEN" \
+            -X GET \
+            -H "Accept: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/transitions")
+
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+          if [[ "$HTTP_CODE" -ne 200 ]]; then
+            echo "::error::Failed to get transitions for $ISSUE_KEY (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+          fi
+
+          # Find the transition ID
+          TRANSITION_ID=$(echo "$RESPONSE_BODY" | jq -r --arg name "$TARGET_TRANSITION" \
+            '.transitions[] | select(.name==$name) | .id')
+
+          if [[ -z "$TRANSITION_ID" || "$TRANSITION_ID" == "null" ]]; then
+            echo "::error::Transition '$TARGET_TRANSITION' not available for issue $ISSUE_KEY"
+            echo "Available transitions:"
+            echo "$RESPONSE_BODY" | jq -r '.transitions[] | "  - \(.name) (id: \(.id))"'
+            exit 1
+          fi
+
+          echo "TRANSITION_ID=$TRANSITION_ID" >> $GITHUB_OUTPUT
+          echo "Found transition '$TARGET_TRANSITION' with ID: $TRANSITION_ID"
+
+      - name: Apply Jira transition
+        env:
+          JIRA_USER: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          ISSUE_KEY: ${{ steps.extract.outputs.ISSUE_KEY }}
+          TRANSITION_ID: ${{ steps.transitions.outputs.TRANSITION_ID }}
+          TARGET_TRANSITION: ${{ inputs.target-transition }}
+        run: |
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -u "$JIRA_USER:$JIRA_API_TOKEN" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/transitions")
+
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+          # Jira returns 204 No Content on success
+          if [[ "$HTTP_CODE" -ne 204 && "$HTTP_CODE" -ne 200 ]]; then
+            echo "::error::Failed to transition $ISSUE_KEY to '$TARGET_TRANSITION' (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+          fi
+
+          echo "Successfully transitioned $ISSUE_KEY to '$TARGET_TRANSITION'"
