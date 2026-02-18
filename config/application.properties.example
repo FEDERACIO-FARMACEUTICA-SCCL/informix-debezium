@@ -53,12 +53,18 @@ debezium.source.table.include.list=\
 #   informix.cterdire.email
 
 # --- Snapshot mode ---
+# initial: hace snapshot SOLO la primera vez (sin offsets previos).
+# Si los logs logicos de Informix se reciclan, el conector FALLA (no re-snaphotea).
+# Si se anade una tabla nueva, NO se hace snapshot de ella (solo recibira CDC).
+# Para forzar re-snapshot: borrar el volumen debezium-data y reiniciar.
+# Alternativa: when_needed (auto-recupera pero duplica datos en Kafka).
 # Options: initial, initial_only, no_data, never, recovery, when_needed
 debezium.source.snapshot.mode=initial
 
 # --- Offset storage (file-based) ---
 debezium.source.offset.storage.file.filename=/debezium/data/offsets.dat
-debezium.source.offset.flush.interval.ms=60000
+# Flush cada 10s para minimizar perdida de offset en crash (fichero ~236 bytes).
+debezium.source.offset.flush.interval.ms=10000
 
 # --- Schema history (file-based) ---
 debezium.source.schema.history.internal=io.debezium.storage.file.history.FileSchemaHistory

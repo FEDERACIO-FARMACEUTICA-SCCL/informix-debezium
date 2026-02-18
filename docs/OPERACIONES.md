@@ -10,7 +10,7 @@ El stack utiliza ficheros `.env` para definir la conexion a Informix. Existen pe
 
 | Fichero | Entorno | Servidor | Base de datos |
 |---------|---------|----------|---------------|
-| `.env.test` | Desarrollo | `host.docker.internal:9088` | `testdb` |
+| `.env.test` | Desarrollo | `host.docker.internal:9088` | `fedefarma` |
 | `.env.production` | Produccion | *(ver `.env.production`)* | *(ver `.env.production`)* |
 | `.env` | **Activo** (el que usa Docker) | Copia de uno de los anteriores | |
 
@@ -95,9 +95,67 @@ docker compose up -d
 
 ---
 
-## 2. Gestion de volumenes Docker
+## 2. Snapshot mode y persistencia de offsets
 
-### 2.1 Volumenes del stack
+### 2.1 Modo de snapshot: `initial`
+
+El conector usa `snapshot.mode=initial`, que hace snapshot de las tablas **solo la primera vez** que arranca (cuando no hay offsets previos). Despues, continua desde la posicion CDC donde se quedo.
+
+**Comportamiento segun escenario:**
+
+| Escenario | Que pasa |
+|-----------|----------|
+| Primera vez (sin offsets) | Snapshot completo de todas las tablas |
+| Reinicio normal | Continua desde el offset guardado |
+| Logs logicos de Informix reciclados | **Falla con error** (el offset apunta a una posicion que ya no existe) |
+| Tabla nueva anadida a `table.include.list` | **No hace snapshot de la tabla nueva** — solo recibira eventos CDC futuros |
+| Borrado manual del volumen `debezium-data` | Snapshot completo (como primera vez) |
+
+### 2.2 Forzar re-snapshot
+
+Si se necesita un snapshot completo (por ejemplo para incluir datos historicos de una tabla nueva):
+
+```bash
+docker compose down
+docker volume rm informix-debezium_debezium-data
+docker compose up -d
+```
+
+> **Importante**: Esto hace snapshot de TODAS las tablas. Si Kafka conserva datos anteriores y la compactacion esta activa, los duplicados se eliminan automaticamente por key. Si no hay compactacion, los datos se acumulan.
+
+### 2.3 Anadir una tabla nueva
+
+1. Crear la tabla en Informix con full row logging habilitado (ver `CAMBIOS_INFORMIX.md`)
+2. Anadir la tabla a `table.include.list` en `application.properties`
+3. Elegir una de estas opciones:
+   - **Opcion A — Solo CDC futuro**: Reiniciar Debezium (`docker compose restart debezium`). La tabla nueva no tendra datos historicos, solo cambios a partir de este momento.
+   - **Opcion B — Snapshot completo**: Borrar el volumen `debezium-data` y reiniciar (ver 2.2). Se hace snapshot de TODAS las tablas.
+
+### 2.4 Recuperacion ante reciclaje de logs
+
+Si Debezium falla porque los logs logicos de Informix se han reciclado:
+
+```
+io.debezium.DebeziumException: The connector is trying to read CDC data
+starting from a position that is no longer available on the server.
+```
+
+Solucion: forzar re-snapshot (ver 2.2).
+
+Para prevenir este escenario:
+- Asegurar que Informix tiene suficientes logical logs para cubrir el tiempo maximo de inactividad de Debezium
+- No dejar Debezium parado durante periodos largos con alta actividad en Informix
+- Alternativa: cambiar a `snapshot.mode=when_needed` (auto-recupera pero duplica datos en Kafka)
+
+### 2.5 Offset flush interval
+
+El offset se persiste a disco cada 10 segundos (`offset.flush.interval.ms=10000`). En caso de crash, se pierden como maximo los ultimos 10 segundos de eventos procesados — Debezium los re-procesara al arrancar (son idempotentes via compactacion de Kafka).
+
+---
+
+## 3. Gestion de volumenes Docker
+
+### 3.1 Volumenes del stack
 
 | Volumen | Contenido | Path en contenedor | Persistente |
 |---------|-----------|-------------------|-------------|
@@ -106,7 +164,7 @@ docker compose up -d
 
 > **Nota tecnica**: La imagen `apache/kafka:3.9.0` corre como `appuser` (uid 1000) por defecto, lo que causa `AccessDeniedException` al escribir en volumenes Docker (que se crean como root). Por eso Kafka se configura con `user: "0:0"` y `KAFKA_LOG_DIRS=/var/kafka-logs` en el `docker-compose.yml`.
 
-### 2.2 Comandos utiles
+### 3.2 Comandos utiles
 
 ```bash
 # Ver volumenes
@@ -125,7 +183,7 @@ docker compose up -d
 docker system df -v | grep informix-debezium
 ```
 
-### 2.3 Comportamiento segun comando de parada
+### 3.3 Comportamiento segun comando de parada
 
 | Comando | Kafka pierde datos? | Debezium repuebla? |
 |---------|---------------------|---------------------|
@@ -136,9 +194,9 @@ docker system df -v | grep informix-debezium
 
 ---
 
-## 3. Monitorizacion
+## 4. Monitorizacion
 
-### 3.1 Logs de Debezium
+### 4.1 Logs de Debezium
 
 ```bash
 # Logs en tiempo real
@@ -151,7 +209,7 @@ docker logs debezium-server 2>&1 | grep -i error
 docker logs debezium-server 2>&1 | grep -E 'Exported|Finished|step [0-9]|Snapshot completed|streaming'
 ```
 
-### 3.2 Estado de Kafka
+### 4.2 Estado de Kafka
 
 ```bash
 # Listar topics
@@ -166,15 +224,15 @@ docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
   --dry-run
 ```
 
-### 3.3 Redpanda Console (UI)
+### 4.3 Redpanda Console (UI)
 
 Accesible en http://localhost:9080 — permite explorar topics, ver mensajes individuales y monitorizar el cluster Kafka.
 
 ---
 
-## 4. Troubleshooting
+## 5. Troubleshooting
 
-### 4.1 Debezium no arranca o reinicia en bucle
+### 5.1 Debezium no arranca o reinicia en bucle
 
 ```bash
 # Ver estado del contenedor
@@ -186,7 +244,7 @@ docker logs debezium-server 2>&1 | tail -30
 
 **Causa comun**: Kafka no esta listo. Debezium tiene `restart: on-failure` y reintentara automaticamente.
 
-### 4.2 Error "syscdcv1 not found"
+### 5.2 Error "syscdcv1 not found"
 
 ```
 Database (syscdcv1) not found or no system permission.
@@ -194,7 +252,7 @@ Database (syscdcv1) not found or no system permission.
 
 La base de datos `syscdcv1` no esta instalada en el servidor Informix. Ver seccion "Cambios en el servidor de produccion" en `PRODUCCION_INFORMIX.md`.
 
-### 4.3 Error "No space left on device"
+### 5.3 Error "No space left on device"
 
 ```bash
 # Liberar espacio Docker
@@ -205,7 +263,29 @@ docker compose down --volumes
 docker compose up -d
 ```
 
-### 4.4 Kafka con indices corruptos (InvalidOffsetException)
+### 5.4 Debezium re-snaphotea inesperadamente
+
+Si en los logs de Debezium ves `"No previous offsets found"` y un snapshot completo al arrancar:
+
+1. **Volumen borrado**: Se borro `debezium-data` (por `docker compose down -v`, `switch-env.sh`, o manualmente). Solucion: es el comportamiento esperado — el snapshot se completara y Debezium guardara nuevos offsets.
+
+2. **Logs reciclados con `when_needed`**: Solo aplica si se cambio `snapshot.mode` a `when_needed`. Informix reciclo los logical logs y Debezium no puede continuar desde su offset, asi que hace re-snapshot. Los datos en Kafka se duplican temporalmente hasta que la compactacion los elimine.
+
+Para verificar la causa, buscar en los logs:
+```bash
+docker logs debezium-server 2>&1 | grep -E 'No previous offset|snapshot|when_needed'
+```
+
+### 5.5 Debezium falla por logs reciclados (con `initial`)
+
+```
+The connector is trying to read CDC data starting from a position
+that is no longer available on the server.
+```
+
+Los logical logs de Informix se reciclaron mientras Debezium estaba parado. Solucion: forzar re-snapshot (ver seccion 2.2).
+
+### 5.6 Kafka con indices corruptos (InvalidOffsetException)
 
 Ocurre si Kafka se queda sin disco. Solucion:
 
