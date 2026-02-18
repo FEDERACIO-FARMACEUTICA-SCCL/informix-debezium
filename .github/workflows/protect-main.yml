@@ -1,0 +1,97 @@
+# Blocks direct commits to protected branches unless they are merges, hotfixes, or force commits
+name: Protect Main Branch
+
+on:
+  workflow_call:
+    inputs:
+      protected-branch:
+        description: 'The branch to protect'
+        required: false
+        type: string
+        default: 'main'
+      hotfix-pattern:
+        description: 'Prefix pattern for hotfix commits'
+        required: false
+        type: string
+        default: 'HOTFIX'
+      force-string:
+        description: 'String that allows forcing a commit'
+        required: false
+        type: string
+        default: '-force-main-commit'
+
+jobs:
+  validate-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commits
+        env:
+          PROTECTED_BRANCH: ${{ inputs.protected-branch }}
+          HOTFIX: ${{ inputs.hotfix-pattern }}
+          FORCE: ${{ inputs.force-string }}
+          CURRENT_BRANCH: ${{ github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Only run on the protected branch
+          if [[ "$CURRENT_BRANCH" != "$PROTECTED_BRANCH" ]]; then
+            echo "Not on protected branch ($CURRENT_BRANCH != $PROTECTED_BRANCH), skipping"
+            exit 0
+          fi
+
+          # Get commits to validate
+          if [[ -n "$BASE_REF" ]]; then
+            COMMITS=$(git log "origin/$BASE_REF..HEAD" --pretty=format:"%H" 2>/dev/null || true)
+          else
+            # For direct pushes, check recent commits not yet on remote
+            COMMITS=$(git log "origin/$PROTECTED_BRANCH..HEAD" --pretty=format:"%H" 2>/dev/null || true)
+          fi
+
+          if [[ -z "$COMMITS" ]]; then
+            echo "No new commits to validate"
+            exit 0
+          fi
+
+          FAILED=0
+          while IFS= read -r sha; do
+            [[ -z "$sha" ]] && continue
+
+            message=$(git log -1 --pretty=%B "$sha")
+            parents=$(git log -1 --pretty=%P "$sha")
+            parent_count=$(echo "$parents" | wc -w)
+            short_sha=$(echo "$sha" | cut -c1-7)
+            first_line=$(echo "$message" | head -n1)
+
+            # Allow merge commits (2 parents)
+            if [[ "$parent_count" -ge 2 ]]; then
+              echo "Commit $short_sha: Merge commit - allowed"
+              continue
+            fi
+
+            # Allow hotfix commits
+            if [[ "$first_line" == "$HOTFIX"* ]]; then
+              echo "Commit $short_sha: Hotfix commit - allowed"
+              continue
+            fi
+
+            # Allow force commits
+            if [[ "$message" == *"$FORCE"* ]]; then
+              echo "Commit $short_sha: Force commit - allowed"
+              continue
+            fi
+
+            # Otherwise fail
+            echo "::error::Commit $short_sha is not allowed on $PROTECTED_BRANCH: $first_line"
+            FAILED=1
+          done <<< "$COMMITS"
+
+          if [[ "$FAILED" -eq 1 ]]; then
+            echo "::error::Direct commits to $PROTECTED_BRANCH must be merge commits, hotfixes ($HOTFIX*), or contain '$FORCE'"
+            exit 1
+          fi
+
+          echo "All commits comply with $PROTECTED_BRANCH branch rules"
